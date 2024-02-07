@@ -3,6 +3,7 @@ from rdkit import Chem
 from typing import List, Type, Callable, Union, Iterable
 from source.io_utils import get_dir_filename_ext, delete_file
 from pathlib import Path
+import subprocess
 from source.logger import Logger
 
 
@@ -92,27 +93,24 @@ def drop_duplicates_with_openbabel(in_file: str):
     Given an input .smiles file, generate an out_file.smiles with no duplicates or invalid mols
     '''
     dir, filename, ext = get_dir_filename_ext(in_file)
-    out = Path(dir)/f"{filename}_no_duplicates.{ext}"
+    out = Path(dir)/f"{filename}_unique.{ext}"
     cmd = f"obabel -ismiles {in_file} -osmiles -O {str(out)} --unique"
     os.system(cmd)  # synchronous call, the result is waited
     return out
 
 
-def get_valid_non_duplicates(ref_path, return_dtype='smiles'):
+def get_valid_non_duplicates(ref_path):
     '''
     Given an input file of mols or smiles:
     1) filters out valid and sanitizable mols keep_valid_mols
-    2) saves the smiles of valid mols to file via save_smiles
+    2) saves the smiles of valid mols to file via save_smiles to be used as input for obabel
     3) uses obabel to drop duplicate mols
-    4) deletes in/out temp files used by obabel
-    5) returns list containing valid_non_duplicates smiles if smiles=True, else List[Chem.Mol]
+    4) deletes input file used by obabel
+    5) returns path of file containing valid-non dup mols
     '''
     if not isinstance(ref_path, str) and not isinstance(ref_path, Path):
         raise TypeError(
-            f"get_valid_non_duplicates() works only on files containing SMILES")
-    if not isinstance(return_dtype, str) or return_dtype not in ["smiles", "mols"]:
-        raise TypeError(
-            f"return_dtype passed is not of type string. It must be either \"smiles\" or \"mols\"")
+            f"get_valid_non_duplicates() works only on files containing SMILES")    
     dir, name, ext = get_dir_filename_ext(ref_path)
     ref_mols = mols_from_file(ref_path)
     log = Logger(dir, name=name+"_log.txt")
@@ -121,16 +119,15 @@ def get_valid_non_duplicates(ref_path, return_dtype='smiles'):
     log.write(f"Valid mols in {ref_path}: {len(valid_mols)}")
     valid_smiles = mols2smi(valid_mols)
     path_to_saved_valid_smiles = save_smiles(
-        valid_smiles, dir, f'{name}_valid')
+        valid_smiles, dir, f'{name}_valids')
     valid_non_duplicates_path = drop_duplicates_with_openbabel(
-        path_to_saved_valid_smiles)
+        path_to_saved_valid_smiles)    
     valid_non_duplicates = read_smiles_from_file(valid_non_duplicates_path)
     log.write(
         f"Non duplicate mols in {valid_non_duplicates_path}: {len(valid_non_duplicates)}")
     delete_file(path_to_saved_valid_smiles)
-    if return_dtype.lower()=='smiles': 
-        out = read_smiles_from_file(valid_non_duplicates_path)
-    else: 
-        out = mols_from_file(valid_non_duplicates_path)
-    delete_file(valid_non_duplicates_path)
-    return out
+    return valid_non_duplicates_path
+
+
+def get_valid_non_duplicates_mols(ref_path):
+    return mols_from_file(get_valid_non_duplicates(ref_path))
